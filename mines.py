@@ -42,7 +42,7 @@ RIGHT = 3
 
 # Frames-per-second limit
 FPS = pygame.time.Clock()
-FPS_LIMIT = 30
+FPS_LIMIT = 60
 
 # Pixel size of individual boxes
 box_size = 24
@@ -56,7 +56,7 @@ font = pygame.font.SysFont('segoeui', 18, True)
 sb_font = pygame.font.SysFont('segoeui', 18)
 
 # Time (seconds) before next game
-RESET_TIME = 4
+RESET_TIME = 0.5
 
 
 # TODO  I need to remove the dependence on pixels and pixel coordinates to define and interact with a box - interaction
@@ -221,16 +221,17 @@ class Grid:
             pygame.draw.line(self.display_surf, border_color, nw, sw)  # LEFT
             pygame.draw.line(self.display_surf, border_color, ne, se)  # RIGHT
 
-        # Define pixel dimensions of grid
-        self.height_start = self._height_top_offset + int((self._win_height - self._height_top_offset
-                                                           - self._height_bot_offset
-                                                           - self.n_rows * (self._box_size + 1)) / 2)
-        self.height_stop = (self._win_height - self.height_start + self._height_top_offset
-                            - self._height_bot_offset - self.n_rows % 2)
-        self.width_start = int((self._win_width - self.n_cols * (self._box_size + 1)) / 2)
-        self.width_stop = self._win_width - self.width_start - self.n_cols % 2
-        self.width_step = self.height_step = self._box_size + 1
+            # Define pixel dimensions of grid
+            self.height_start = self._height_top_offset + int((self._win_height - self._height_top_offset
+                                                               - self._height_bot_offset
+                                                               - self.n_rows * (self._box_size + 1)) / 2)
+            self.height_stop = (self._win_height - self.height_start + self._height_top_offset
+                                - self._height_bot_offset - self.n_rows % 2)
+            self.width_start = int((self._win_width - self.n_cols * (self._box_size + 1)) / 2)
+            self.width_stop = self._win_width - self.width_start - self.n_cols % 2
+            self.width_step = self.height_step = self._box_size + 1
 
+        # TODO this is where the pixel dependency needs to be replaced
         # Create Boxes in a grid and assign each a unique ID
         box_id = 0
         for i in range(self.width_start, self.width_stop, self.width_step):
@@ -358,11 +359,12 @@ class Grid:
         return [box for box in self.boxes.values() if box.get_id() == box_id][0]
 
     def reveal(self, box):
-        n_neighbor_mines = box.reveal()
-        self.n_unknown -= 1
-        self.exploded = n_neighbor_mines == -1
-        if n_neighbor_mines == 0:
-            self.expand_neighbors(box)
+        if not box.is_protected:
+            n_neighbor_mines = box.reveal()
+            self.n_unknown -= 1
+            self.exploded = n_neighbor_mines == -1
+            if n_neighbor_mines == 0:
+                self.expand_neighbors(box)
 
     def toggle_protect(self, box):
         # TODO number of mines does not decrease on scoreboard if an incorrect tile is protected
@@ -384,10 +386,12 @@ class Grid:
             win_str = 'YOU WIN!'
             bg_color = GREEN
             bg_color.a = 100
+            print('Win!')
         elif self.exploded:
             win_str = 'YOU LOSE!'
             bg_color = RED
             bg_color.a = 100
+            print('Lose!')
         if win_str:
             if not self.headless:
                 win_font = pygame.font.SysFont('segoeui', 48, bold=True)
@@ -413,42 +417,66 @@ class Grid:
         if not self.headless:
             pygame.display.update()
             pygame.event.clear()
-        while True:
-            event = pygame.event.wait()
-            if event.type == QUIT:
-                pygame.quit()
-                sys.exit()
-            elif event.type == MOUSEBUTTONUP:
-                # Find box that was clicked
-                m_pos = pygame.mouse.get_pos()
-                target = [box for box in self.boxes.values() if box.graphics_obj.rect.collidepoint(*m_pos)]
+            while True:
+                event = pygame.event.wait()
+                if event.type == QUIT:
+                    pygame.quit()
+                    sys.exit()
+                elif event.type == MOUSEBUTTONUP:
+                    # Find box that was clicked
+                    m_pos = pygame.mouse.get_pos()
+                    target = [box for box in self.boxes.values() if box.graphics_obj.rect.collidepoint(*m_pos)]
 
-                if target and event.button == LEFT:
-                    target = target[0]
-                    clicked_box_id = target.get_id()
-                    neighbor_ids = target.get_neighbor_ids(self.neighbor_info)
+                    if target and event.button == LEFT:
+                        target = target[0]
+                        clicked_box_id = target.get_id()
+                        neighbor_ids = target.get_neighbor_ids(self.neighbor_info)
 
-                    # Pick boxes randomly to have mines, making sure the current one has none
-                    max_tries = int(1e4)
-                    tries = 0
-                    mine_ids = None
-                    while tries < max_tries:
-                        mine_ids = random.sample(range(self.n_rows * self.n_cols), self.n_mines)
-                        if clicked_box_id not in mine_ids:
-                            if not any(neighbor in mine_ids for neighbor in neighbor_ids):
-                                break
-                        tries += 1
-                    if tries >= max_tries:
-                        raise RuntimeError('Too many iterations attempted. Could not find a valid starting point.')
+                        # Pick boxes randomly to have mines, making sure the current one has none
+                        max_tries = int(1e4)
+                        tries = 0
+                        mine_ids = None
+                        while tries < max_tries:
+                            mine_ids = random.sample(range(self.n_rows * self.n_cols), self.n_mines)
+                            if clicked_box_id not in mine_ids:
+                                if not any(neighbor in mine_ids for neighbor in neighbor_ids):
+                                    break
+                            tries += 1
+                        if tries >= max_tries:
+                            raise RuntimeError('Too many iterations attempted. Could not find a valid starting point.')
 
-                    # Set mines
-                    for mine_id in mine_ids:
-                        for box in self.boxes.values():
-                            if box.get_id() == mine_id:
-                                box.is_mine = True
+                        # Set mines
+                        for mine_id in mine_ids:
+                            for box in self.boxes.values():
+                                if box.get_id() == mine_id:
+                                    box.is_mine = True
 
-                    # Exit the loop
-                    break
+                        # Exit the loop
+                        break
+        else:
+            while True:
+                action, target = self.solver.get_action(self)
+                clicked_box_id = target.get_id()
+                neighbor_ids = target.get_neighbor_ids(self.neighbor_info)
+                # Pick boxes randomly to have mines, making sure the current one has none
+                max_tries = int(1e4)
+                tries = 0
+                mine_ids = None
+                while tries < max_tries:
+                    mine_ids = random.sample(range(self.n_rows * self.n_cols), self.n_mines)
+                    if clicked_box_id not in mine_ids:
+                        if not any(neighbor in mine_ids for neighbor in neighbor_ids):
+                            break
+                    tries += 1
+                if tries >= max_tries:
+                    raise RuntimeError('Too many iterations attempted. Could not find a valid starting point.')
+                # Set mines
+                for mine_id in mine_ids:
+                    for box in self.boxes.values():
+                        if box.get_id() == mine_id:
+                            box.is_mine = True
+                # Exit the loop
+                break
 
         # Compute each box's number of neighboring mines
         for box_id, box in self.boxes.items():
@@ -517,13 +545,13 @@ class Grid:
                 if event.type == QUIT:
                     pygame.quit()
                     sys.exit()
-
-                elif not reset:
+                # -> Put this back in the for loop above ->
+                if not reset:
                     # TODO need to pull headless mode out of event check, and make it so only clicks
                     #  are accepted (not mouse movement)
                     if not self.headless:
-                        # action, target = self._process_player_action(event)
-                        action, target = self.solver.get_action(self)
+                        action, target = self._process_player_action(event)
+                        # action, target = self.solver.get_action(self)
                     else:
                         # Receive a target and action.
                         action, target = self.solver.get_action(self)
@@ -539,6 +567,7 @@ class Grid:
                         # Check if the game is over
                         reset = self._check_win()
                         reset_t0 = time.time()
+                # -> Put this back in the for loop above ->
 
             if not self.headless:
                 if not self.is_locked:
@@ -553,6 +582,7 @@ class Solver:
         self.type = _solver_type
 
     def get_action(self, grid: Grid) -> (int, Box):
+        # Make random guesses
         action = random.randint(0, 1)
         target = None
         i = 0
@@ -562,6 +592,17 @@ class Solver:
                 i += 1
             else:
                 break
+
+        # Use keyboard input
+        # while True:
+        #     str_in = input("Next Move (action, target_id): ")
+        #     action, target = str_in.split(',')
+        #     action = int(action)
+        #     target = grid._id_to_box(int(target.strip()))
+        #     if target.is_revealed:
+        #         print("Target box is already revealed. Pick another box.")
+        #     else:
+        #         break
         return action, target
 
 
