@@ -617,7 +617,7 @@ difficulties = {'easy':         {'dims': (8, 8),    '_box_size': box_size, 'num_
 if __name__ == "__main__":
     # Run game
     _difficulty = 'debug'
-    _headless = False
+    _headless = True
     _solver = Solver()
     grid = Grid(headless=_headless, solver=_solver, **difficulties[_difficulty])
     grid.run()
