@@ -191,6 +191,7 @@ class Grid:
         self._width_offset = offsets[0]
         self._height_top_offset = offsets[1]
         self._height_bot_offset = offsets[2]
+        self._t0 = 0
         if not self.headless:
             window_pad_scale = 1.1
             self._win_width = round(self.n_cols * (box_size + 1) * window_pad_scale) + 2 * self._width_offset
@@ -450,16 +451,24 @@ class Grid:
         while True:
             if not self.headless:
                 pygame.display.update()
+            else:
+                raise RuntimeError("Headless mode not implemented.")
 
-                for event in pygame.event.get():
-                    if reset and (time.time() - reset_t0) > RESET_TIME:
-                        if single_game:
-                            return
-                        self.reset()
-                        pygame.event.clear()
-                        reset = False
-                        self._first_move()
+            # Check if the game needs to be reset
+            if reset and (time.time() - reset_t0) > RESET_TIME:
+                if single_game:
+                    return
+                self.reset()
+                pygame.event.clear()
+                reset = False
+                self._first_move()
 
+            # Check for an input
+            for event in pygame.event.get():
+                # If playing with graphics, check where the player clicked
+                target = None
+                action = None
+                if not self.headless:
                     # Check if the player took an action
                     if event.type == MOUSEBUTTONUP and not self.is_locked:
                         # Find box that was selected (if any)
@@ -469,32 +478,39 @@ class Grid:
                         # If a box was clicked, take an action
                         if target:
                             target = target[0]
-                            action = None
                             # Left click will reveal the box
                             if event.button == LEFT:
                                 action = 0
                             # Right click will toggle being protected
                             elif event.button == RIGHT:
                                 action = 1
-                            # Perform the action
-                            self._do_action(action, target)
-                            # After the action is taken, update the scoreboard accordingly
-                            self._update_scoreboard()
-                            # Check if the game is over
-                            reset = self._check_win()
-                            reset_t0 = time.time()
 
-                    if event.type == QUIT:
-                        pygame.quit()
-                        sys.exit()
+                else:
+                    # Receive a target and action.
+                    # action, target = self.solver.get_action()
+                    pass
+
+                if target:
+                    # Perform the action
+                    self._do_action(action, target)
+
+                    # After the action is taken, update the scoreboard accordingly
+                    self._update_scoreboard()
+
+                    # Check if the game is over
+                    reset = self._check_win()
+                    reset_t0 = time.time()
+
+                if event.type == QUIT:
+                    pygame.quit()
+                    sys.exit()
+
+            if not self.headless:
                 if not self.is_locked:
                     self._update_scoreboard()
 
-                # Limit frame rate - tick forward one step
+                # Limit the frame rate - tick forward one step
                 FPS.tick(FPS_LIMIT)
-
-            else:
-                raise RuntimeError("Headless mode not implemented.")
 
 
 difficulties = {'easy':         {'dims': (8, 8),    'box_size': box_size, 'num_mines': 10},
