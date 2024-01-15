@@ -55,6 +55,9 @@ min_win_height = 200
 font = pygame.font.SysFont('segoeui', 18, True)
 sb_font = pygame.font.SysFont('segoeui', 18)
 
+# Time (seconds) before next game
+RESET_TIME = 4
+
 
 # TODO  I need to remove the dependence on pixels and pixel coordinates to define and interact with a box - interaction
 #       should only be through an indexing system of some sort
@@ -389,8 +392,10 @@ class Grid:
                 pygame.quit()
                 sys.exit()
             elif event.type == MOUSEBUTTONUP:
+                # Find box that was clicked
                 m_pos = pygame.mouse.get_pos()
                 target = [box for box in self.boxes.values() if box.graphics_obj.rect.collidepoint(*m_pos)]
+
                 if target and event.button == LEFT:
                     target = target[0]
                     clicked_box_id = target.get_id()
@@ -428,8 +433,13 @@ class Grid:
     # def _receive_next_user_move(self):
     #     for event in pygame.event.get():
 
+    def _do_action(self, action: int, target: Box) -> None:
+        if action == 0:
+            self.reveal(target)
+        elif action == 1:
+            self.toggle_protect(target)
 
-    def run(self, single_game=False):
+    def run(self, single_game: bool = False) -> None:
         self._first_move()
         self._t0 = time.time()
         self._update_scoreboard()
@@ -442,29 +452,45 @@ class Grid:
                 pygame.display.update()
 
                 for event in pygame.event.get():
-                    if reset and (time.time() - reset_t0) > 5:
+                    if reset and (time.time() - reset_t0) > RESET_TIME:
                         if single_game:
                             return
                         self.reset()
                         pygame.event.clear()
                         reset = False
                         self._first_move()
+
+                    # Check if the player took an action
                     if event.type == MOUSEBUTTONUP and not self.is_locked:
+                        # Find box that was selected (if any)
                         m_pos = pygame.mouse.get_pos()
                         target = [box for box in self.boxes.values() if box.graphics_obj.rect.collidepoint(*m_pos)]
+
+                        # If a box was clicked, take an action
                         if target:
+                            target = target[0]
+                            action = None
+                            # Left click will reveal the box
                             if event.button == LEFT:
-                                self.reveal(target[0])
+                                action = 0
+                            # Right click will toggle being protected
                             elif event.button == RIGHT:
-                                self.toggle_protect(target[0])
+                                action = 1
+                            # Perform the action
+                            self._do_action(action, target)
+                            # After the action is taken, update the scoreboard accordingly
                             self._update_scoreboard()
+                            # Check if the game is over
                             reset = self._check_win()
                             reset_t0 = time.time()
+
                     if event.type == QUIT:
                         pygame.quit()
                         sys.exit()
                 if not self.is_locked:
                     self._update_scoreboard()
+
+                # Limit frame rate - tick forward one step
                 FPS.tick(FPS_LIMIT)
 
             else:
@@ -476,12 +502,12 @@ difficulties = {'easy':         {'dims': (8, 8),    'box_size': box_size, 'num_m
                 'expert':       {'dims': (16, 30),  'box_size': box_size, 'num_mines': 99},
                 'extreme':      {'dims': (9, 9),    'box_size': box_size, 'num_mines': 35},
                 'extremer':     {'dims': (16, 30),  'box_size': box_size, 'num_mines': 170},
-                'debug':        {'dims': (4, 4),    'box_size': box_size, 'num_mines': 2}}
+                'debug':        {'dims': (5, 4),    'box_size': box_size, 'num_mines': 2}}
 
 
 if __name__ == "__main__":
     # Run game
-    difficulty = 'extremer'
+    difficulty = 'debug'
     headless = False
     grid = Grid(headless=headless, **difficulties[difficulty])
     grid.run()
