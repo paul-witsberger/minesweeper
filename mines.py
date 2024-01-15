@@ -62,6 +62,7 @@ RESET_TIME = 4
 # TODO  I need to remove the dependence on pixels and pixel coordinates to define and interact with a box - interaction
 #       should only be through an indexing system of some sort
 
+
 class BoxGraphics:
     def __init__(self, x: int, y: int, dim: int, display_surf: pygame.Surface, color: pygame.Color):
         self._x = x
@@ -309,6 +310,7 @@ class Grid:
         self.display_surf.blit(self.sb_left_surf, (self._width_offset, self._width_offset))
         self.mines_rem_str = f'Mines: {self.n_mines - self.n_mines_protected} / {self.n_mines}'
         self.mines_rem_surf = sb_font.render(self.mines_rem_str, True, mines_rem_font_color, mines_rem_bg_color)
+
         # Unknown boxes remaining
         self.unk_rem_surf = sb_font.render(self.unk_rem_str, True, unk_rem_bg_color, unk_rem_bg_color)
         self.sb_middle_surf.blit(self.unk_rem_surf, self.unk_rem_dims)
@@ -317,6 +319,7 @@ class Grid:
                                 self._width_offset))
         self.unk_rem_str = f'Unk: {self.n_unknown} / {self.n_rows * self.n_cols}'
         self.unk_rem_surf = sb_font.render(self.unk_rem_str, True, unk_rem_font_color, unk_rem_bg_color)
+
         # Timer
         self.timer_surf = sb_font.render(self.timer_str, True, timer_bg_color, timer_bg_color)
         self.sb_right_surf.blit(self.timer_surf, self.timer_dims)
@@ -343,7 +346,8 @@ class Grid:
 
     def reset(self):
         self.__init__((self.n_rows, self.n_cols), self.n_mines, self._box_size,
-                      (self._width_offset, self._height_top_offset, self._height_bot_offset), self.headless)
+                      (self._width_offset, self._height_top_offset, self._height_bot_offset),
+                      self.headless, self.solver)
 
     def expand_neighbors(self, box):
         neighbor_ids = box.get_neighbor_ids(self.neighbor_info)
@@ -361,6 +365,7 @@ class Grid:
             self.expand_neighbors(box)
 
     def toggle_protect(self, box):
+        # TODO number of mines does not decrease on scoreboard if an incorrect tile is protected
         is_mine, is_protected = box.toggle_protect()
         if is_protected is not None:
             if is_protected:
@@ -403,6 +408,7 @@ class Grid:
         return False
 
     def _first_move(self):
+        # TODO clean this up to align with the flow of the main loop
         # Get the first click, and make sure it isn't a mine
         if not self.headless:
             pygame.display.update()
@@ -453,6 +459,27 @@ class Grid:
 
     # def _receive_next_user_move(self):
     #     for event in pygame.event.get():
+    def _process_player_action(self, event) -> (int, Box):
+        target = None
+        action = None
+        # Check if the player took an action
+        if event.type == MOUSEBUTTONUP and not self.is_locked:
+            # Find box that was selected (if any)
+            m_pos = pygame.mouse.get_pos()
+            target = [box for box in self.boxes.values() if box.graphics_obj.rect.collidepoint(*m_pos)]
+
+            # If a box was clicked, take an action
+            if target:
+                target = target[0]
+                assert isinstance(target, Box)
+                # Left click will reveal the box
+                if event.button == LEFT:
+                    action = 0
+                # Right click will toggle being protected
+                elif event.button == RIGHT:
+                    action = 1
+
+        return action, target
 
     def _do_action(self, action: int, target: Box) -> None:
         if action == 0:
@@ -463,7 +490,8 @@ class Grid:
     def run(self, single_game: bool = False) -> None:
         self._first_move()
         self._t0 = time.time()
-        self._update_scoreboard()
+        if not self.headless:
+            self._update_scoreboard()
         reset = False
         reset_t0 = None
 
@@ -482,49 +510,35 @@ class Grid:
                 pygame.event.clear()
                 reset = False
                 self._first_move()
+                self._t0 = time.time()
 
             # Check for an input
             for event in pygame.event.get():
-                # If playing with graphics, check where the player clicked
-                target = None
-                action = None
-                if not self.headless:
-                    # Check if the player took an action
-                    if event.type == MOUSEBUTTONUP and not self.is_locked:
-                        # Find box that was selected (if any)
-                        m_pos = pygame.mouse.get_pos()
-                        target = [box for box in self.boxes.values() if box.graphics_obj.rect.collidepoint(*m_pos)]
-
-                        # If a box was clicked, take an action
-                        if target:
-                            target = target[0]
-                            assert isinstance(target, Box)
-                            # Left click will reveal the box
-                            if event.button == LEFT:
-                                action = 0
-                            # Right click will toggle being protected
-                            elif event.button == RIGHT:
-                                action = 1
-
-                else:
-                    # Receive a target and action.
-                    # action, target = self.solver.get_action()
-                    pass
-
-                if target:
-                    # Perform the action
-                    self._do_action(action, target)
-
-                    # After the action is taken, update the scoreboard accordingly
-                    self._update_scoreboard()
-
-                    # Check if the game is over
-                    reset = self._check_win()
-                    reset_t0 = time.time()
-
                 if event.type == QUIT:
                     pygame.quit()
                     sys.exit()
+
+                elif not reset:
+                    # TODO need to pull headless mode out of event check, and make it so only clicks
+                    #  are accepted (not mouse movement)
+                    if not self.headless:
+                        # action, target = self._process_player_action(event)
+                        action, target = self.solver.get_action(self)
+                    else:
+                        # Receive a target and action.
+                        action, target = self.solver.get_action(self)
+
+                    if target:
+                        # Perform the action
+                        self._do_action(action, target)
+
+                        # After the action is taken, update the scoreboard accordingly
+                        if not self.headless:
+                            self._update_scoreboard()
+
+                        # Check if the game is over
+                        reset = self._check_win()
+                        reset_t0 = time.time()
 
             if not self.headless:
                 if not self.is_locked:
@@ -532,6 +546,23 @@ class Grid:
 
                 # Limit the frame rate - tick forward one step
                 FPS.tick(FPS_LIMIT)
+
+
+class Solver:
+    def __init__(self, _solver_type='rl') -> None:
+        self.type = _solver_type
+
+    def get_action(self, grid: Grid) -> (int, Box):
+        action = random.randint(0, 1)
+        target = None
+        i = 0
+        while i < 100:
+            target = grid._id_to_box(random.randint(0, grid.n_rows * grid.n_cols - 1))
+            if target.is_revealed:
+                i += 1
+            else:
+                break
+        return action, target
 
 
 difficulties = {'easy':         {'dims': (8, 8),    '_box_size': box_size, 'num_mines': 10},
@@ -546,7 +577,7 @@ if __name__ == "__main__":
     # Run game
     _difficulty = 'debug'
     _headless = False
-    _solver = None
+    _solver = Solver()
     grid = Grid(headless=_headless, solver=_solver, **difficulties[_difficulty])
     grid.run()
 
