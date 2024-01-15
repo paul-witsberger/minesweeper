@@ -63,7 +63,7 @@ RESET_TIME = 4
 #       should only be through an indexing system of some sort
 
 class BoxGraphics:
-    def __init__(self, x:int, y:int, dim:int, display_surf:pygame.Surface, color:pygame.Color):
+    def __init__(self, x: int, y: int, dim: int, display_surf: pygame.Surface, color: pygame.Color):
         self._x = x
         self._y = y
         self._dim = dim
@@ -118,8 +118,8 @@ class BoxGraphics:
 
 
 class Box:
-    def __init__(self, id, box_graphics_obj):
-        self._id = id
+    def __init__(self, box_id, box_graphics_obj):
+        self._id = box_id
         self.graphics_obj = box_graphics_obj
         self.is_mine = False
         self.is_revealed = False
@@ -163,7 +163,8 @@ class Box:
 
     def get_neighbor_ids(self, neighbor_info):
         n_rows, n_cols, width_start, height_start, width_step, height_step = neighbor_info
-        col, row = int((self.graphics_obj.x - width_start) / width_step), int((self.graphics_obj.y - height_start) / height_step)
+        col = int((self.graphics_obj.x - width_start) / width_step)
+        row = int((self.graphics_obj.y - height_start) / height_step)
         ids = []
         for r in range(row - 1, row + 2):
             if r < 0 or r >= n_rows:
@@ -176,8 +177,9 @@ class Box:
 
 
 class Grid:
-    def __init__(self, dims, num_mines, box_size=39, offsets=(10, 50, 10), headless=False):
+    def __init__(self, dims, num_mines, _box_size=39, offsets=(10, 50, 10), headless=False, solver=None):
         self.headless = headless
+        self.solver = solver
         self.boxes = {}
         self.n_mines = num_mines
         self.n_mines_protected = 0
@@ -187,7 +189,7 @@ class Grid:
         self.is_locked = False
         self.n_rows = dims[0]
         self.n_cols = dims[1]
-        self._box_size = box_size
+        self._box_size = _box_size
         self._width_offset = offsets[0]
         self._height_top_offset = offsets[1]
         self._height_bot_offset = offsets[2]
@@ -197,7 +199,8 @@ class Grid:
             self._win_width = round(self.n_cols * (box_size + 1) * window_pad_scale) + 2 * self._width_offset
             self._win_width += int(self._win_width % 2)
             self._win_width = max(self._win_width, min_win_width)
-            self._win_height = round(self.n_rows * (box_size + 1) * window_pad_scale) + self._height_top_offset + self._height_bot_offset
+            self._win_height = (round(self.n_rows * (box_size + 1) * window_pad_scale) + self._height_top_offset
+                                + self._height_bot_offset)
             self._win_height += int(self._win_height % 2)
             self._win_height = max(self._win_height, min_win_height)
             self.display_surf = pygame.display.set_mode((self._win_width, self._win_height))
@@ -208,24 +211,27 @@ class Grid:
     def _make_board(self):
         if not self.headless:
             # Draw bounding rectangle
-            NW = (self._width_offset, self._height_top_offset)
-            NE = (self._win_width - self._width_offset, self._height_top_offset)
-            SW = (self._width_offset, self._win_height - self._height_bot_offset)
-            SE = (self._win_width - self._width_offset, self._win_height - self._height_bot_offset)
-            pygame.draw.line(self.display_surf, border_color, NW, NE)  # TOP
-            pygame.draw.line(self.display_surf, border_color, SW, SE)  # BOTTOM
-            pygame.draw.line(self.display_surf, border_color, NW, SW)  # LEFT
-            pygame.draw.line(self.display_surf, border_color, NE, SE)  # RIGHT
+            nw = (self._width_offset, self._height_top_offset)
+            ne = (self._win_width - self._width_offset, self._height_top_offset)
+            sw = (self._width_offset, self._win_height - self._height_bot_offset)
+            se = (self._win_width - self._width_offset, self._win_height - self._height_bot_offset)
+            pygame.draw.line(self.display_surf, border_color, nw, ne)  # TOP
+            pygame.draw.line(self.display_surf, border_color, sw, se)  # BOTTOM
+            pygame.draw.line(self.display_surf, border_color, nw, sw)  # LEFT
+            pygame.draw.line(self.display_surf, border_color, ne, se)  # RIGHT
 
         # Define pixel dimensions of grid
-        self.height_start = self._height_top_offset + int((self._win_height - self._height_top_offset - self._height_bot_offset - self.n_rows * (self._box_size + 1)) / 2)
-        self.height_stop = self._win_height - self.height_start + self._height_top_offset - self._height_bot_offset - self.n_rows % 2
+        self.height_start = self._height_top_offset + int((self._win_height - self._height_top_offset
+                                                           - self._height_bot_offset
+                                                           - self.n_rows * (self._box_size + 1)) / 2)
+        self.height_stop = (self._win_height - self.height_start + self._height_top_offset
+                            - self._height_bot_offset - self.n_rows % 2)
         self.width_start = int((self._win_width - self.n_cols * (self._box_size + 1)) / 2)
         self.width_stop = self._win_width - self.width_start - self.n_cols % 2
         self.width_step = self.height_step = self._box_size + 1
 
         # Create Boxes in a grid and assign each a unique ID
-        id = 0
+        box_id = 0
         for i in range(self.width_start, self.width_stop, self.width_step):
             for j in range(self.height_start, self.height_stop, self.height_step):
                 if not self.headless:
@@ -233,11 +239,12 @@ class Grid:
                 else:
                     graphics_obj = None
                 self.boxes[(int((i - self.width_start) / self.width_step),
-                            int((j - self.height_start) / self.height_step))] = Box(id, graphics_obj)
-                id += 1
+                            int((j - self.height_start) / self.height_step))] = Box(box_id, graphics_obj)
+                box_id += 1
 
         # Save info needed to calculate neighbors for convenience
-        self.neighbor_info = self.n_rows, self.n_cols, self.width_start, self.height_start, self.width_step, self.height_step
+        self.neighbor_info = (self.n_rows, self.n_cols, self.width_start, self.height_start,
+                              self.width_step, self.height_step)
 
         # Draw scoreboard
         if not self.headless:
@@ -254,9 +261,12 @@ class Grid:
 
     def _make_scoreboard(self):
         # Scoreboard surface
-        self.sb_left_surf = pygame.Surface((int((self._win_width - 2 * self._width_offset) / 3.), self._height_top_offset - 2 * self._width_offset))
-        self.sb_middle_surf = pygame.Surface((int((self._win_width - 2 * self._width_offset) / 3.), self._height_top_offset - 2 * self._width_offset))
-        self.sb_right_surf = pygame.Surface((int((self._win_width - 2 * self._width_offset) / 3.), self._height_top_offset - 2 * self._width_offset))
+        self.sb_left_surf = pygame.Surface((int((self._win_width - 2 * self._width_offset) / 3.),
+                                            self._height_top_offset - 2 * self._width_offset))
+        self.sb_middle_surf = pygame.Surface((int((self._win_width - 2 * self._width_offset) / 3.),
+                                              self._height_top_offset - 2 * self._width_offset))
+        self.sb_right_surf = pygame.Surface((int((self._win_width - 2 * self._width_offset) / 3.),
+                                             self._height_top_offset - 2 * self._width_offset))
         self.sb_left_surf.fill(mines_rem_bg_color)
         self.sb_middle_surf.fill(unk_rem_bg_color)
         self.sb_right_surf.fill(timer_bg_color)
@@ -302,13 +312,17 @@ class Grid:
         # Unknown boxes remaining
         self.unk_rem_surf = sb_font.render(self.unk_rem_str, True, unk_rem_bg_color, unk_rem_bg_color)
         self.sb_middle_surf.blit(self.unk_rem_surf, self.unk_rem_dims)
-        self.display_surf.blit(self.sb_middle_surf, (self._width_offset + int((self._win_width - 2 * self._width_offset) / 3.), self._width_offset))
+        self.display_surf.blit(self.sb_middle_surf,
+                               (self._width_offset + int((self._win_width - 2 * self._width_offset) / 3.),
+                                self._width_offset))
         self.unk_rem_str = f'Unk: {self.n_unknown} / {self.n_rows * self.n_cols}'
         self.unk_rem_surf = sb_font.render(self.unk_rem_str, True, unk_rem_font_color, unk_rem_bg_color)
         # Timer
         self.timer_surf = sb_font.render(self.timer_str, True, timer_bg_color, timer_bg_color)
         self.sb_right_surf.blit(self.timer_surf, self.timer_dims)
-        self.display_surf.blit(self.sb_right_surf, (self._width_offset + int((self._win_width - 2 * self._width_offset) * 2 / 3.), self._width_offset))
+        self.display_surf.blit(self.sb_right_surf,
+                               (self._width_offset + int((self._win_width - 2 * self._width_offset) * 2 / 3.),
+                                self._width_offset))
         timer_min, timer_sec = self._update_timer()
         self.timer_str = '{}:{}'.format(timer_min, str(timer_sec).zfill(2))
         self.timer_surf = sb_font.render(self.timer_str, True, timer_font_color, timer_bg_color)
@@ -320,8 +334,12 @@ class Grid:
 
         # Put scoreboard on display
         self.display_surf.blit(self.sb_left_surf,   (self._width_offset, self._width_offset))
-        self.display_surf.blit(self.sb_middle_surf, (self._width_offset + int((self._win_width - 2 * self._width_offset) / 3.), self._width_offset))
-        self.display_surf.blit(self.sb_right_surf,  (self._width_offset + int((self._win_width - 2 * self._width_offset) * 2 / 3.), self._width_offset))
+        self.display_surf.blit(self.sb_middle_surf,
+                               (self._width_offset + int((self._win_width - 2 * self._width_offset) / 3.),
+                                self._width_offset))
+        self.display_surf.blit(self.sb_right_surf,
+                               (self._width_offset + int((self._win_width - 2 * self._width_offset) * 2 / 3.),
+                                self._width_offset))
 
     def reset(self):
         self.__init__((self.n_rows, self.n_cols), self.n_mines, self._box_size,
@@ -329,10 +347,11 @@ class Grid:
 
     def expand_neighbors(self, box):
         neighbor_ids = box.get_neighbor_ids(self.neighbor_info)
-        [self.reveal(self._id_to_box(neighbor_id)) for neighbor_id in neighbor_ids if not self._id_to_box(neighbor_id).is_revealed]
+        [self.reveal(self._id_to_box(neighbor_id)) for neighbor_id in neighbor_ids
+         if not self._id_to_box(neighbor_id).is_revealed]
 
-    def _id_to_box(self, id):
-        return [box for box in self.boxes.values() if box.get_id() ==  id][0]
+    def _id_to_box(self, box_id):
+        return [box for box in self.boxes.values() if box.get_id() == box_id][0]
 
     def reveal(self, box):
         n_neighbor_mines = box.reveal()
@@ -355,7 +374,8 @@ class Grid:
 
     def _check_win(self):
         win_str, bg_color = None, None
-        if self.n_mines - self.n_mines_protected <= 0 and self.n_mines_protected == self.n_protected and self.n_unknown == 0:
+        if (self.n_mines - self.n_mines_protected <= 0 and self.n_mines_protected == self.n_protected
+                and self.n_unknown == 0):
             win_str = 'YOU WIN!'
             bg_color = GREEN
             bg_color.a = 100
@@ -416,17 +436,17 @@ class Grid:
                         raise RuntimeError('Too many iterations attempted. Could not find a valid starting point.')
 
                     # Set mines
-                    for id in mine_ids:
+                    for mine_id in mine_ids:
                         for box in self.boxes.values():
-                            if box.get_id() == id:
+                            if box.get_id() == mine_id:
                                 box.is_mine = True
 
                     # Exit the loop
                     break
 
         # Compute each box's number of neighboring mines
-        for id, box in self.boxes.items():
-            box.n_neighbors = sum(id in mine_ids for id in box.get_neighbor_ids(self.neighbor_info))
+        for box_id, box in self.boxes.items():
+            box.n_neighbors = sum(mine_id in mine_ids for mine_id in box.get_neighbor_ids(self.neighbor_info))
 
         # Reveal the first one
         self.reveal(target)
@@ -478,6 +498,7 @@ class Grid:
                         # If a box was clicked, take an action
                         if target:
                             target = target[0]
+                            assert isinstance(target, Box)
                             # Left click will reveal the box
                             if event.button == LEFT:
                                 action = 0
@@ -513,19 +534,20 @@ class Grid:
                 FPS.tick(FPS_LIMIT)
 
 
-difficulties = {'easy':         {'dims': (8, 8),    'box_size': box_size, 'num_mines': 10},
-                'intermediate': {'dims': (16, 16),  'box_size': box_size, 'num_mines': 40},
-                'expert':       {'dims': (16, 30),  'box_size': box_size, 'num_mines': 99},
-                'extreme':      {'dims': (9, 9),    'box_size': box_size, 'num_mines': 35},
-                'extremer':     {'dims': (16, 30),  'box_size': box_size, 'num_mines': 170},
-                'debug':        {'dims': (5, 4),    'box_size': box_size, 'num_mines': 2}}
+difficulties = {'easy':         {'dims': (8, 8),    '_box_size': box_size, 'num_mines': 10},
+                'intermediate': {'dims': (16, 16),  '_box_size': box_size, 'num_mines': 40},
+                'expert':       {'dims': (16, 30),  '_box_size': box_size, 'num_mines': 99},
+                'extreme':      {'dims': (9, 9),    '_box_size': box_size, 'num_mines': 35},
+                'extremer':     {'dims': (16, 30),  '_box_size': box_size, 'num_mines': 170},
+                'debug':        {'dims': (5, 4),    '_box_size': box_size, 'num_mines': 2}}
 
 
 if __name__ == "__main__":
     # Run game
-    difficulty = 'debug'
-    headless = False
-    grid = Grid(headless=headless, **difficulties[difficulty])
+    _difficulty = 'debug'
+    _headless = False
+    _solver = None
+    grid = Grid(headless=_headless, solver=_solver, **difficulties[_difficulty])
     grid.run()
 
 
@@ -533,7 +555,7 @@ if __name__ == "__main__":
 # TODO make "headless" mode
 
 # MEDIUM TERM
-# TODO think about dynamically solving the board as the player progesses to avoid guessing
+# TODO think about dynamically solving the board as the player progresses to avoid guessing
 
 # LONG TERM
 # TODO think about solvers - algorithmic, supervised learning, reinforcement learning, NEAT, ...
