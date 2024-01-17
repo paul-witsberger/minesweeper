@@ -42,7 +42,7 @@ RIGHT = 3
 
 # Frames-per-second limit
 FPS = pygame.time.Clock()
-FPS_LIMIT = 60
+FPS_LIMIT = 10
 
 # Pixel size of individual boxes
 box_size = 24
@@ -56,7 +56,7 @@ font = pygame.font.SysFont('segoeui', 18, True)
 sb_font = pygame.font.SysFont('segoeui', 18)
 
 # Time (seconds) before next game
-RESET_TIME = 0.5
+RESET_TIME = 0.2
 
 
 # TODO  I need to remove the dependence on pixels and pixel coordinates to define and interact with a box - interaction
@@ -119,8 +119,10 @@ class BoxGraphics:
 
 
 class Box:
-    def __init__(self, box_id, box_graphics_obj):
+    def __init__(self, box_id, row, col, box_graphics_obj):
         self._id = box_id
+        self.row = row
+        self.col = col
         self.graphics_obj = box_graphics_obj
         self.is_mine = False
         self.is_revealed = False
@@ -130,29 +132,32 @@ class Box:
     def get_id(self):
         return self._id
 
-    def reveal(self):
+    def reveal(self, headless: bool = False):
         if not self.is_revealed and not self.is_protected:
             self.is_revealed = True
-            if self.is_mine:
-                self._update_color(mine_box_color)
-            else:
-                self._update_color(known_box_color)
-                if self.n_neighbors > 0:
-                    self._show_number()
-            pygame.display.update()
+            if not headless:
+                if self.is_mine:
+                    self._update_color(mine_box_color)
+                else:
+                    self._update_color(known_box_color)
+                    if self.n_neighbors > 0:
+                        self._show_number()
+                pygame.display.update()
         return self.n_neighbors if not self.is_mine else -1
 
     def _update_color(self, color):
         self.graphics_obj.update_color(color)
 
-    def toggle_protect(self):
+    def toggle_protect(self, headless):
         if not self.is_revealed:
             if not self.is_protected:
                 self.is_protected = True
-                self._update_color(BLUE)
+                if not headless:
+                    self._update_color(BLUE)
             else:
                 self.is_protected = False
-                self._update_color(GREY)
+                if not headless:
+                    self._update_color(GREY)
             return self.is_mine, self.is_protected
         return False, None
 
@@ -163,15 +168,16 @@ class Box:
         self.graphics_obj.show_number(self.n_neighbors)
 
     def get_neighbor_ids(self, neighbor_info):
-        n_rows, n_cols, width_start, height_start, width_step, height_step = neighbor_info
-        col = int((self.graphics_obj.x - width_start) / width_step)
-        row = int((self.graphics_obj.y - height_start) / height_step)
+        # n_rows, n_cols, width_start, height_start, width_step, height_step = neighbor_info
+        # col = int((self.graphics_obj.x - width_start) / width_step)
+        # row = int((self.graphics_obj.y - height_start) / height_step)
+        n_rows, n_cols = neighbor_info
         ids = []
-        for r in range(row - 1, row + 2):
+        for r in range(self.row - 1, self.row + 2):
             if r < 0 or r >= n_rows:
                 continue
-            for c in range(col - 1, col + 2):
-                if c < 0 or c >= n_cols or (r == row and c == col):
+            for c in range(self.col - 1, self.col + 2):
+                if c < 0 or c >= n_cols or (r == self.row and c == self.col):
                     continue
                 ids.append(c * n_rows + r)
         return ids
@@ -234,19 +240,29 @@ class Grid:
         # TODO this is where the pixel dependency needs to be replaced
         # Create Boxes in a grid and assign each a unique ID
         box_id = 0
-        for i in range(self.width_start, self.width_stop, self.width_step):
-            for j in range(self.height_start, self.height_stop, self.height_step):
+        # if not self.headless:
+        #     for i in range(self.width_start, self.width_stop, self.width_step):
+        #         for j in range(self.height_start, self.height_stop, self.height_step):
+        #             graphics_obj = BoxGraphics(i, j, self._box_size, self.display_surf, color=unknown_box_color)
+        #             self.boxes[(int((i - self.width_start) / self.width_step),
+        #                         int((j - self.height_start) / self.height_step))] = Box(box_id, i, j, graphics_obj)
+        #             box_id += 1
+        # else:
+        for i in range(self.n_rows):
+            for j in range(self.n_cols):
                 if not self.headless:
                     graphics_obj = BoxGraphics(i, j, self._box_size, self.display_surf, color=unknown_box_color)
                 else:
                     graphics_obj = None
-                self.boxes[(int((i - self.width_start) / self.width_step),
-                            int((j - self.height_start) / self.height_step))] = Box(box_id, graphics_obj)
+                self.boxes[i, j] = Box(box_id, i, j, graphics_obj)
                 box_id += 1
 
         # Save info needed to calculate neighbors for convenience
-        self.neighbor_info = (self.n_rows, self.n_cols, self.width_start, self.height_start,
-                              self.width_step, self.height_step)
+        if not self.headless:
+            self.neighbor_info = (self.n_rows, self.n_cols, self.width_start, self.height_start,
+                                  self.width_step, self.height_step)
+        else:
+            self.neighbor_info = (self.n_rows, self.n_cols)
 
         # Draw scoreboard
         if not self.headless:
@@ -360,7 +376,7 @@ class Grid:
 
     def reveal(self, box):
         if not box.is_protected:
-            n_neighbor_mines = box.reveal()
+            n_neighbor_mines = box.reveal(self.headless)
             self.n_unknown -= 1
             self.exploded = n_neighbor_mines == -1
             if n_neighbor_mines == 0:
@@ -368,7 +384,7 @@ class Grid:
 
     def toggle_protect(self, box):
         # TODO number of mines does not decrease on scoreboard if an incorrect tile is protected
-        is_mine, is_protected = box.toggle_protect()
+        is_mine, is_protected = box.toggle_protect(self.headless)
         if is_protected is not None:
             if is_protected:
                 self.n_mines_protected += int(is_mine)
@@ -485,8 +501,6 @@ class Grid:
         # Reveal the first one
         self.reveal(target)
 
-    # def _receive_next_user_move(self):
-    #     for event in pygame.event.get():
     def _process_player_action(self, event) -> (int, Box):
         target = None
         action = None
@@ -527,8 +541,8 @@ class Grid:
         while True:
             if not self.headless:
                 pygame.display.update()
-            else:
-                raise RuntimeError("Headless mode not implemented.")
+            # else:
+            #     raise RuntimeError("Headless mode not implemented.")
 
             # Check if the game needs to be reset
             if reset and (time.time() - reset_t0) > RESET_TIME:
@@ -541,7 +555,11 @@ class Grid:
                 self._t0 = time.time()
 
             # Check for an input
-            for event in pygame.event.get():
+            if not self.headless:
+                events = [event for event in pygame.event.get()]
+            else:
+                events = [pygame.event.EventType]
+            for event in events:
                 if event.type == QUIT:
                     pygame.quit()
                     sys.exit()
