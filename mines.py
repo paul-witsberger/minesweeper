@@ -42,7 +42,7 @@ RIGHT = 3
 
 # Frames-per-second limit
 FPS = pygame.time.Clock()
-FPS_LIMIT = 10
+FPS_LIMIT = 30
 
 # Pixel size of individual boxes
 box_size = 24
@@ -192,6 +192,7 @@ class Grid:
         self.n_mines_protected = 0
         self.n_unknown = dims[0] * dims[1]
         self.n_protected = 0
+        self.n_protected_scoreboard = 0
         self.exploded = False
         self.is_locked = False
         self.n_rows = dims[0]
@@ -237,32 +238,44 @@ class Grid:
             self.width_stop = self._win_width - self.width_start - self.n_cols % 2
             self.width_step = self.height_step = self._box_size + 1
 
-        # TODO this is where the pixel dependency needs to be replaced
         # Create Boxes in a grid and assign each a unique ID
         box_id = 0
-        # if not self.headless:
-        #     for i in range(self.width_start, self.width_stop, self.width_step):
-        #         for j in range(self.height_start, self.height_stop, self.height_step):
-        #             graphics_obj = BoxGraphics(i, j, self._box_size, self.display_surf, color=unknown_box_color)
-        #             self.boxes[(int((i - self.width_start) / self.width_step),
-        #                         int((j - self.height_start) / self.height_step))] = Box(box_id, i, j, graphics_obj)
-        #             box_id += 1
-        # else:
-        for i in range(self.n_rows):
-            for j in range(self.n_cols):
-                if not self.headless:
+        if not self.headless:
+            for i in range(self.width_start, self.width_stop, self.width_step):
+                for j in range(self.height_start, self.height_stop, self.height_step):
                     graphics_obj = BoxGraphics(i, j, self._box_size, self.display_surf, color=unknown_box_color)
-                else:
-                    graphics_obj = None
-                self.boxes[i, j] = Box(box_id, i, j, graphics_obj)
-                box_id += 1
+                    self.boxes[(int((i - self.width_start) / self.width_step),
+                                int((j - self.height_start) / self.height_step))]\
+                        = (Box(box_id,
+                               (j - self.height_start) // self.height_step,
+                               (i - self.width_start) // self.width_step,
+                               graphics_obj))
+                    box_id += 1
+                    i1 = (j - self.height_start) // self.height_step
+                    i2 = int((j - self.height_start) / self.height_step)
+                    if i1 != i2:
+                        print('mismatch in i')
+                    # print('i = ' + str((j - self.height_start) // self.height_step))
+                    # print('i = ' + str(int((j - self.height_start) / self.height_step)))
+                    # print('j = ' + str((i - self.width_start) // self.width_step))
+                    # TODO there is a bug in the win condition since I have changed how the Box instantiation
+                    #  -- this might be fixed after I changed how the mines remaining are displayed?
+        else:
+            for i in range(self.n_rows):
+                for j in range(self.n_cols):
+                    if not self.headless:
+                        graphics_obj = BoxGraphics(i, j, self._box_size, self.display_surf, color=unknown_box_color)
+                    else:
+                        graphics_obj = None
+                    self.boxes[i, j] = Box(box_id, i, j, graphics_obj)
+                    box_id += 1
 
         # Save info needed to calculate neighbors for convenience
-        if not self.headless:
-            self.neighbor_info = (self.n_rows, self.n_cols, self.width_start, self.height_start,
-                                  self.width_step, self.height_step)
-        else:
-            self.neighbor_info = (self.n_rows, self.n_cols)
+        # if not self.headless:
+        #     self.neighbor_info = (self.n_rows, self.n_cols, self.width_start, self.height_start,
+        #                           self.width_step, self.height_step)
+        # else:
+        self.neighbor_info = (self.n_rows, self.n_cols)
 
         # Draw scoreboard
         if not self.headless:
@@ -289,7 +302,7 @@ class Grid:
         self.sb_middle_surf.fill(unk_rem_bg_color)
         self.sb_right_surf.fill(timer_bg_color)
         # Mines remaining
-        self.mines_rem_str = f'Mines: {self.n_mines - self.n_mines_protected} / {self.n_mines}'
+        self.mines_rem_str = f'Mines: {self.n_mines - self.n_protected_scoreboard} / {self.n_mines}'
         self.mines_rem_surf = sb_font.render(self.mines_rem_str, True, mines_rem_font_color, mines_rem_bg_color)
         width = self.mines_rem_surf.get_rect().width
         height = self.mines_rem_surf.get_rect().height
@@ -325,7 +338,7 @@ class Grid:
         self.mines_rem_surf = sb_font.render(self.mines_rem_str, True, mines_rem_bg_color, mines_rem_bg_color)
         self.sb_left_surf.blit(self.mines_rem_surf, self.mines_rem_dims)
         self.display_surf.blit(self.sb_left_surf, (self._width_offset, self._width_offset))
-        self.mines_rem_str = f'Mines: {self.n_mines - self.n_mines_protected} / {self.n_mines}'
+        self.mines_rem_str = f'Mines: {self.n_mines - self.n_protected} / {self.n_mines}'
         self.mines_rem_surf = sb_font.render(self.mines_rem_str, True, mines_rem_font_color, mines_rem_bg_color)
 
         # Unknown boxes remaining
@@ -383,7 +396,6 @@ class Grid:
                 self.expand_neighbors(box)
 
     def toggle_protect(self, box):
-        # TODO number of mines does not decrease on scoreboard if an incorrect tile is protected
         is_mine, is_protected = box.toggle_protect(self.headless)
         if is_protected is not None:
             if is_protected:
@@ -442,12 +454,11 @@ class Grid:
                     # Find box that was clicked
                     m_pos = pygame.mouse.get_pos()
                     target = [box for box in self.boxes.values() if box.graphics_obj.rect.collidepoint(*m_pos)]
-
+                    # If a valid target was left-clicked
                     if target and event.button == LEFT:
                         target = target[0]
                         clicked_box_id = target.get_id()
                         neighbor_ids = target.get_neighbor_ids(self.neighbor_info)
-
                         # Pick boxes randomly to have mines, making sure the current one has none
                         max_tries = int(1e4)
                         tries = 0
@@ -460,13 +471,11 @@ class Grid:
                             tries += 1
                         if tries >= max_tries:
                             raise RuntimeError('Too many iterations attempted. Could not find a valid starting point.')
-
                         # Set mines
                         for mine_id in mine_ids:
                             for box in self.boxes.values():
                                 if box.get_id() == mine_id:
                                     box.is_mine = True
-
                         # Exit the loop
                         break
         else:
@@ -493,11 +502,9 @@ class Grid:
                             box.is_mine = True
                 # Exit the loop
                 break
-
         # Compute each box's number of neighboring mines
         for box_id, box in self.boxes.items():
             box.n_neighbors = sum(mine_id in mine_ids for mine_id in box.get_neighbor_ids(self.neighbor_info))
-
         # Reveal the first one
         self.reveal(target)
 
@@ -509,7 +516,6 @@ class Grid:
             # Find box that was selected (if any)
             m_pos = pygame.mouse.get_pos()
             target = [box for box in self.boxes.values() if box.graphics_obj.rect.collidepoint(*m_pos)]
-
             # If a box was clicked, take an action
             if target:
                 target = target[0]
@@ -520,7 +526,7 @@ class Grid:
                 # Right click will toggle being protected
                 elif event.button == RIGHT:
                     action = 1
-
+        # Return the desired action and target
         return action, target
 
     def _do_action(self, action: int, target: Box) -> None:
@@ -555,18 +561,15 @@ class Grid:
                 self._t0 = time.time()
 
             # Check for an input
-            if not self.headless:
-                events = [event for event in pygame.event.get()]
-            else:
-                events = [pygame.event.EventType]
+            events = [event for event in pygame.event.get()]
+            if self.headless:
+                events.append(pygame.event.EventType)
             for event in events:
                 if event.type == QUIT:
                     pygame.quit()
                     sys.exit()
                 # -> Put this back in the for loop above ->
                 if not reset:
-                    # TODO need to pull headless mode out of event check, and make it so only clicks
-                    #  are accepted (not mouse movement)
                     if not self.headless:
                         action, target = self._process_player_action(event)
                         # action, target = self.solver.get_action(self)
@@ -635,14 +638,14 @@ difficulties = {'easy':         {'dims': (8, 8),    '_box_size': box_size, 'num_
 if __name__ == "__main__":
     # Run game
     _difficulty = 'debug'
-    _headless = True
+    _headless = False
     _solver = Solver()
     grid = Grid(headless=_headless, solver=_solver, **difficulties[_difficulty])
     grid.run()
 
 
 # SHORT TERM
-# TODO make "headless" mode
+# TODO make an option to enter inputs via GUI or via command line, separate from headless option
 
 # MEDIUM TERM
 # TODO think about dynamically solving the board as the player progresses to avoid guessing
