@@ -3,6 +3,7 @@ import sys
 import pygame
 from pygame.locals import *
 import time
+from typing import List
 
 # Initialize pygame
 pygame.init()
@@ -119,7 +120,7 @@ class BoxGraphics:
 
 
 class Box:
-    def __init__(self, box_id, row, col, box_graphics_obj):
+    def __init__(self, box_id: int, row: int, col: int, box_graphics_obj: BoxGraphics) -> None:
         self._id = box_id
         self.row = row
         self.col = col
@@ -129,10 +130,10 @@ class Box:
         self.is_protected = False
         self.n_neighbors = 0
 
-    def get_id(self):
+    def get_id(self) -> int:
         return self._id
 
-    def reveal(self, headless: bool = False):
+    def reveal(self, headless: bool = False) -> int:
         if not self.is_revealed and not self.is_protected:
             self.is_revealed = True
             if not headless:
@@ -145,10 +146,10 @@ class Box:
                 pygame.display.update()
         return self.n_neighbors if not self.is_mine else -1
 
-    def _update_color(self, color):
+    def _update_color(self, color: pygame.Color) -> None:
         self.graphics_obj.update_color(color)
 
-    def toggle_protect(self, headless):
+    def toggle_protect(self, headless: bool) -> (bool, bool):
         if not self.is_revealed:
             if not self.is_protected:
                 self.is_protected = True
@@ -161,13 +162,13 @@ class Box:
             return self.is_mine, self.is_protected
         return False, None
 
-    def set_mine(self):
+    def set_mine(self) -> None:
         self.is_mine = True
 
-    def _show_number(self):
+    def _show_number(self) -> None:
         self.graphics_obj.show_number(self.n_neighbors)
 
-    def get_neighbor_ids(self, neighbor_info):
+    def get_neighbor_ids(self, neighbor_info: List[int]) -> List[int]:
         # n_rows, n_cols, width_start, height_start, width_step, height_step = neighbor_info
         # col = int((self.graphics_obj.x - width_start) / width_step)
         # row = int((self.graphics_obj.y - height_start) / height_step)
@@ -184,8 +185,10 @@ class Box:
 
 
 class Grid:
-    def __init__(self, dims, num_mines, _box_size=39, offsets=(10, 50, 10), headless=False, solver=None):
+    def __init__(self, dims: List[int], num_mines: int, _box_size: int = 39, offsets: tuple[int] = (10, 50, 10),
+                 headless: bool = False, input_type: str = 'gui', solver=None) -> None:
         self.headless = headless
+        self.input_type = input_type
         self.solver = solver
         self.boxes = {}
         self.n_mines = num_mines
@@ -216,7 +219,7 @@ class Grid:
             pygame.display.set_caption("Paul's Extreme Minesweeper")
         self._make_board()
 
-    def _make_board(self):
+    def _make_board(self) -> None:
         if not self.headless:
             # Draw bounding rectangle
             nw = (self._width_offset, self._height_top_offset)
@@ -259,7 +262,8 @@ class Grid:
                     # print('i = ' + str(int((j - self.height_start) / self.height_step)))
                     # print('j = ' + str((i - self.width_start) // self.width_step))
                     # TODO there is a bug in the win condition since I have changed how the Box instantiation
-                    #  -- this might be fixed after I changed how the mines remaining are displayed?
+                    #  -- it seems that in rare cases, the win screen comes up when all mines are protected but when
+                    #  -- there is still one unknown box left
         else:
             for i in range(self.n_rows):
                 for j in range(self.n_cols):
@@ -281,16 +285,16 @@ class Grid:
         if not self.headless:
             self._make_scoreboard()
 
-    def _start_timer(self):
+    def _start_timer(self) -> (int, int):
         self._t0 = time.time()
         return self._update_timer()
 
-    def _update_timer(self):
+    def _update_timer(self) -> (int, int):
         timer_min = int((time.time() - self._t0) // 60)
         timer_sec = int((time.time() - self._t0) % 60)
         return timer_min, timer_sec
 
-    def _make_scoreboard(self):
+    def _make_scoreboard(self) -> None:
         # Scoreboard surface
         self.sb_left_surf = pygame.Surface((int((self._win_width - 2 * self._width_offset) / 3.),
                                             self._height_top_offset - 2 * self._width_offset))
@@ -332,7 +336,7 @@ class Grid:
         # Make text
         self._update_scoreboard()
 
-    def _update_scoreboard(self):
+    def _update_scoreboard(self) -> None:
         # First, remove current text
         # Mines remaining
         self.mines_rem_surf = sb_font.render(self.mines_rem_str, True, mines_rem_bg_color, mines_rem_bg_color)
@@ -374,20 +378,20 @@ class Grid:
                                (self._width_offset + int((self._win_width - 2 * self._width_offset) * 2 / 3.),
                                 self._width_offset))
 
-    def reset(self):
+    def reset(self) -> None:
         self.__init__((self.n_rows, self.n_cols), self.n_mines, self._box_size,
                       (self._width_offset, self._height_top_offset, self._height_bot_offset),
                       self.headless, self.solver)
 
-    def expand_neighbors(self, box):
+    def expand_neighbors(self, box: Box):
         neighbor_ids = box.get_neighbor_ids(self.neighbor_info)
         [self.reveal(self._id_to_box(neighbor_id)) for neighbor_id in neighbor_ids
          if not self._id_to_box(neighbor_id).is_revealed]
 
-    def _id_to_box(self, box_id):
+    def _id_to_box(self, box_id: int) -> Box:
         return [box for box in self.boxes.values() if box.get_id() == box_id][0]
 
-    def reveal(self, box):
+    def reveal(self, box: Box) -> None:
         if not box.is_protected:
             n_neighbor_mines = box.reveal(self.headless)
             self.n_unknown -= 1
@@ -395,7 +399,7 @@ class Grid:
             if n_neighbor_mines == 0:
                 self.expand_neighbors(box)
 
-    def toggle_protect(self, box):
+    def toggle_protect(self, box: Box) -> None:
         is_mine, is_protected = box.toggle_protect(self.headless)
         if is_protected is not None:
             if is_protected:
@@ -407,7 +411,7 @@ class Grid:
                 self.n_protected -= 1
                 self.n_unknown += 1
 
-    def _check_win(self):
+    def _check_win(self) -> bool:
         win_str, bg_color = None, None
         if (self.n_mines - self.n_mines_protected <= 0 and self.n_mines_protected == self.n_protected
                 and self.n_unknown == 0):
@@ -439,7 +443,7 @@ class Grid:
             return True
         return False
 
-    def _first_move(self):
+    def _first_move(self) -> None:
         # TODO clean this up to align with the flow of the main loop
         # Get the first click, and make sure it isn't a mine
         if not self.headless:
@@ -508,7 +512,7 @@ class Grid:
         # Reveal the first one
         self.reveal(target)
 
-    def _process_player_action(self, event) -> (int, Box):
+    def _process_player_action(self, event: pygame.event) -> (int, Box):
         target = None
         action = None
         # Check if the player took an action
@@ -640,7 +644,8 @@ if __name__ == "__main__":
     _difficulty = 'debug'
     _headless = False
     _solver = Solver()
-    grid = Grid(headless=_headless, solver=_solver, **difficulties[_difficulty])
+    _input_type = 'gui'  # {'gui', 'keyboard', 'solver'}
+    grid = Grid(headless=_headless, input_type=_input_type, solver=_solver, **difficulties[_difficulty])
     grid.run()
 
 
